@@ -1,0 +1,102 @@
+<html>
+  <head>
+    <script src="node_modules/@ffmpeg/ffmpeg/dist/ffmpeg.min.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      body #output-gif {
+        width: 320px;
+        height: 180px;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>Record video from webcam and transcode to mp4 (x264) and play!</h3>
+    <div>
+      <video id="webcam" width="1280px" height="720px"></video>
+      <video id="output-video" width="1280px" height="720px" controls></video>
+      <img id="output-gif"></img>
+    </div>
+    <button id="record" disabled>Start Recording</button>
+    <p id="message"></p>
+    <script>
+      const { createWorker } = FFmpeg;
+      const worker = createWorker({
+        corePath: "./node_modules/@ffmpeg/core/ffmpeg-core.js",
+        corePath: "./old/dist-wasm/ffmpeg-core.js",
+        logger: ({ message }) => console.log(message)
+      });
+
+      const webcam = document.getElementById("webcam");
+      const recordBtn = document.getElementById("record");
+      const startRecording = () => {
+        const rec = new MediaRecorder(webcam.srcObject);
+        const chunks = [];
+        setTimeout(() => {
+          rec.stop();
+          recordBtn.textContent = "Start Recording";
+          recordBtn.onclick = startRecording;
+        }, 5000)
+
+        recordBtn.textContent = "Stop Recording";
+        // recordBtn.onclick = () => {
+        //   rec.stop();
+        //   recordBtn.textContent = "Start Recording";
+        //   recordBtn.onclick = startRecording;
+        // };
+
+        rec.ondataavailable = e => chunks.push(e.data);
+        rec.onstop = async () => {
+          transcode(new Uint8Array(await new Blob(chunks).arrayBuffer()));
+        };
+        rec.start();
+      };
+
+      (async () => {
+        webcam.srcObject = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true
+        });
+        await webcam.play();
+        recordBtn.disabled = false;
+        recordBtn.onclick = startRecording;
+      })();
+
+      const transcode = async webcamData => {
+        console.time('transcode')
+        const message = document.getElementById("message");
+        const name = "record.webm";
+        message.innerHTML = "Loading ffmpeg-core.js";
+        await worker.load();
+        message.innerHTML = "Start transcoding";
+        await worker.write(name, webcamData);
+        await worker.transcode(name, "output.gif");
+        message.innerHTML = "Complete transcoding";
+        const { data } = await worker.read("output.gif");
+        console.timeEnd('transcode')
+
+        console.log(data);
+        const gifBlob = new Blob([data.buffer], {type: "image/gif"})
+        const gifBlobUrl = URL.createObjectURL(gifBlob)
+        console.log({gifBlob, gifBlobUrl})
+        const img = document.getElementById("output-gif")
+        img.src = gifBlobUrl
+
+
+        // const video = document.getElementById("output-video");
+        // video.src = URL.createObjectURL(
+        //   new Blob([data.buffer], { type: "video/mp4" })
+        // );
+      };
+    </script>
+  </body>
+</html>
